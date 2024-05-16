@@ -1,0 +1,12 @@
+{{ $width := default "100%" (.Get 0) }}
+{{ $height := default "25vh" (.Get 1) }}
+{{ $options := unmarshal (.Inner) }}
+{{ $seed := "foo" }}
+{{ $id := delimit (shuffle (split (md5 $seed) "" )) "" }}
+
+<div style="width: {{ $width }}%; height: {{ $height }}; margin: auto;">
+    <canvas id="{{ $id }}"></canvas>
+</div>
+<script>
+    new Chart(document.getElementById('{{ $id }}').getContext('2d'), {{ $options }});
+</script>
