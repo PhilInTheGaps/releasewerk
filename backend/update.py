@@ -1,3 +1,4 @@
+import argparse
 import inspect
 import os
 import sqlite3
@@ -11,6 +12,20 @@ from github import GitHubRepo, GitHubConnector
 
 SQLITE_FILENAME = "stats.db"
 STATS_DIR = "../hugo/content/stats"
+
+
+def init_argparse() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        usage="%(prog)s [option] ...",
+        description="Convert data from json files to the new db based approach."
+    )
+
+    parser.add_argument("--fetch-only", action="store_true",
+                        help="don't generate the web page")
+    parser.add_argument("--generate-only",
+                        action="store_true", help="don't fetch data")
+
+    return parser
 
 
 def delete_stats_dir():
@@ -123,7 +138,35 @@ def get_start_of_week():
     return current_day - timedelta(days=current_day.weekday())
 
 
+def fetch_data(db: Database, repos: list[GitHubRepo]):
+    gh_token = os.getenv("GITHUB_TOKEN")
+
+    if gh_token == None:
+        print("Error: GitHub Access Token not found!")
+        return
+
+    gh = GitHubConnector(gh_token)
+    today = get_current_day().isoformat()
+
+    for repo in repos:
+        releases = gh.get_releases(repo)
+
+        for release in releases:
+            db.add_release(repo, release, today)
+
+        views = gh.get_views(repo)
+
+        for data in views:
+            db.add_views(repo, data)
+
+        if len(views) == 0:
+            db.add_views_zero(repo, get_start_of_week().isoformat())
+
+
 def main():
+    parser = init_argparse()
+    args = parser.parse_args()
+
     print("Updating statistics ...")
     load_dotenv()
 
@@ -138,12 +181,6 @@ def main():
     for repo in repos:
         print(f"\t{repo}")
 
-    gh_token = os.getenv("GITHUB_TOKEN")
-
-    if gh_token == None:
-        print("Error: GitHub Access Token not found!")
-        exit(1)
-
     with Database() as db:
         if not db.connect(SQLITE_FILENAME):
             exit(1)
@@ -152,26 +189,13 @@ def main():
         db.add_repositories(repos)
         db.set_repo_ids(repos)
 
-        gh = GitHubConnector(gh_token)
-        today = get_current_day().isoformat()
-
-        # for repo in repos:
-        #     releases = gh.get_releases(repo)
-
-        #     for release in releases:
-        #         db.add_release(repo, release, today)
-
-        #     views = gh.get_views(repo)
-
-        #     for data in views:
-        #         db.add_views(repo, data)
-
-        #     if len(views) == 0:
-        #         db.add_views_zero(repo, get_start_of_week().isoformat())
+        if not args.generate_only:
+            fetch_data(db, repos)
 
         db.optimize()
 
-        generate_all_pages(db, repos)
+        if not args.fetch_only:
+            generate_all_pages(db, repos)
 
     print("Done.")
 
