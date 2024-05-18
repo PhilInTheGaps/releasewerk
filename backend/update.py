@@ -2,6 +2,7 @@ import os
 import sqlite3
 import requests
 import shutil
+import uuid
 from datetime import date, datetime, timedelta
 from dotenv import load_dotenv
 from pathlib import Path
@@ -315,6 +316,24 @@ def generate_all_pages(connection: sqlite3.Connection, repos: list[str]):
         generate_page(connection, repo)
 
 
+def generate_tabs(content: dict) -> str:
+    res = f"{{{{< tabs \"{uuid.uuid4()}\" >}}}}\n"
+
+    for key in content:
+        res += generate_tab(key, content[key])
+
+    res += "{{< /tabs >}}\n"
+    return res
+
+
+def generate_tab(title: str, content: str) -> str:
+    return f"{{{{< tab \"{title}\" >}}}}\n{content}\n{{{{< /tab >}}}}\n"
+
+
+def generate_hint(type: str, content: str) -> str:
+    return f"{{{{< hint {type} >}}}}\n{content}\n{{{{< /hint >}}}}\n"
+
+
 def generate_page(connection: sqlite3.Connection, repo: str):
     print(f"Generating page for {repo} ...")
 
@@ -414,15 +433,13 @@ def generate_release_charts(connection: sqlite3.Connection, repo_id: int) -> str
     releases = cursor.fetchall()
 
     if len(releases) == 0:
-        return "No releases.\n\n"
+        return generate_hint("warning", "This repository contains no releases.\n\n")
 
     charts = ""
 
     for release in releases:
-        charts += f"""
-### {release[1]}
-Date: {release[2]}  \nAuthor: {release[3]}
-"""
+        charts += f"### {release[1]}\nDate: {release[2]
+                                             }  \nAuthor: {release[3]}\n"
 
         cursor.execute(
             f"""
@@ -441,9 +458,10 @@ Date: {release[2]}  \nAuthor: {release[3]}
 
         asset_labels = asset_labels[:-1]
 
-        charts += generate_release_line_chart(connection, assets)
-        charts += generate_release_bar_chart(connection,
-                                             release[0], assets, asset_labels)
+        charts += generate_tabs({
+            "Over Time": generate_release_line_chart(connection, assets),
+            "Total": generate_release_bar_chart(connection, release[0], assets, asset_labels)
+        })
 
     return charts
 
@@ -555,7 +573,6 @@ def optimize_db(connection: sqlite3.Connection):
             count = res[i][1]
             if i+1 < len(res) and count == res[i+1][1] and count == res[i-1][1]:
                 timestamps_to_remove.append(res[i][0])
-                print(res[i])
 
         cursor.execute(
             f"""
