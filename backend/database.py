@@ -272,7 +272,7 @@ class Database():
             """)
         return cursor.fetchall()
 
-    def _get_newest_download_timestamp(self, assets: list[sqlite3.Row]) -> str:
+    def _get_newest_download_timestamp(self, assets: list[sqlite3.Row]) -> str | None:
         cursor = self._connection.cursor()
         cursor.row_factory = sqlite3.Row
         cursor.execute(f"""
@@ -282,9 +282,14 @@ class Database():
             ORDER BY timestamp DESC
             LIMIT 1;
             """)
-        return cursor.fetchone()["timestamp"]
+        res = cursor.fetchone()
+        return res["timestamp"] if res != None else None
 
     def get_newest_download_counts(self, release_id: int, assets: list[sqlite3.Row]):
+        newest_timestamp = self._get_newest_download_timestamp(assets)
+        if newest_timestamp == None:
+            return []
+
         cursor = self._connection.cursor()
         cursor.row_factory = sqlite3.Row
         cursor.execute("""
@@ -293,7 +298,7 @@ class Database():
             INNER JOIN assets r ON r.id = l.asset_id
             WHERE l.timestamp = ? AND r.release_id = ?
             ORDER BY r.id ASC;
-            """, [self._get_newest_download_timestamp(assets), release_id])
+            """, [newest_timestamp, release_id])
         return cursor.fetchall()
 
     def get_download_counts(self, asset: sqlite3.Row) -> list[sqlite3.Row]:

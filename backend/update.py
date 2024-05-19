@@ -20,6 +20,12 @@ def init_argparse() -> argparse.ArgumentParser:
         description="Convert data from json files to the new db based approach."
     )
 
+    parser.add_argument("--repos", action="store",
+                        nargs="+", help="specify repositories")
+    parser.add_argument("--users", action="store",
+                        nargs="+", help="specify users to get repositories from")
+    parser.add_argument("--orgs", action="store",
+                        nargs="+", help="specify organisations to get repositories from")
     parser.add_argument("--fetch-only", action="store_true",
                         help="don't generate the web page")
     parser.add_argument("--generate-only",
@@ -138,20 +144,23 @@ def get_start_of_week():
     return current_day - timedelta(days=current_day.weekday())
 
 
-def fetch_data(db: Database, repos: list[GitHubRepo]):
-    gh_token = os.getenv("GITHUB_TOKEN")
+def make_gh_connector() -> GitHubConnector:
+    gh_token = os.getenv("RW_GITHUB_TOKEN")
 
     if gh_token == None:
         print("Error: GitHub Access Token not found!")
-        return
+        exit(1)
 
-    gh = GitHubConnector(gh_token)
+    return GitHubConnector(gh_token)
+
+
+def fetch_data(db: Database, gh: GitHubConnector, repos: list[GitHubRepo]):
     today = get_current_day().isoformat()
 
-    for repo in repos:
-        releases = gh.get_releases(repo)
+    releases = gh.get_releases(repos)
 
-        for release in releases:
+    for repo in releases:
+        for release in releases[repo]:
             db.add_release(repo, release, today)
 
         views = gh.get_views(repo)
@@ -163,6 +172,40 @@ def fetch_data(db: Database, repos: list[GitHubRepo]):
             db.add_views_zero(repo, get_start_of_week().isoformat())
 
 
+def get_from_args_or_env(args_value: list[str], env_key: str) -> list[str]:
+    if args_value and len(args_value) > 0:
+        return args_value
+
+    values = os.getenv(env_key)
+
+    if not values or len(values) == 0:
+        return []
+
+    return [value.strip() for value in values.split(",")]
+
+
+def get_repos(args: argparse.Namespace, gh: GitHubConnector) -> list[GitHubRepo]:
+    users = get_from_args_or_env(args.users, "RW_USERS")
+    orgs = get_from_args_or_env(args.orgs, "RW_ORGS")
+    repos = gh.get_repos(users, orgs)
+
+    repos += [GitHubRepo(repo.lower())
+              for repo in get_from_args_or_env(args.repos, "RW_REPOS")]
+
+    if len(repos) == 0:
+        print("No repositories configured.")
+        exit(1)
+
+    # remove duplicates
+    repos = list(set(repos))
+
+    print("Watching the following repositories:")
+    for repo in repos:
+        print(f"\t{repo}")
+
+    return repos
+
+
 def main():
     parser = init_argparse()
     args = parser.parse_args()
@@ -170,16 +213,8 @@ def main():
     print("Updating statistics ...")
     load_dotenv()
 
-    repos = os.getenv("REPOSITORIES").split(",")
-    repos = [GitHubRepo(repo) for repo in repos]
-
-    if len(repos) == 0:
-        print("No repositories configured.")
-        exit(1)
-
-    print("Watching the following repositories:")
-    for repo in repos:
-        print(f"\t{repo}")
+    gh = make_gh_connector()
+    repos = get_repos(args, gh)
 
     with Database() as db:
         if not db.connect(SQLITE_FILENAME):
@@ -190,7 +225,7 @@ def main():
         db.set_repo_ids(repos)
 
         if not args.generate_only:
-            fetch_data(db, repos)
+            fetch_data(db, gh, repos)
 
         db.optimize()
 
