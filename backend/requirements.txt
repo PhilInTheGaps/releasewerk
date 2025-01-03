@@ -1,7 +1,7 @@
-certifi==2024.2.2
-charset-normalizer==3.3.2
-idna==3.7
+certifi==2024.12.14
+charset-normalizer==3.4.1
+idna==3.10
 python-dotenv==1.0.1
-requests==2.32.0
+requests==2.32.3
 shortuuid==1.0.13
-urllib3==2.2.1
+urllib3==2.3.0
